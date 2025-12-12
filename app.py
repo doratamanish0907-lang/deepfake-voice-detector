@@ -1,169 +1,106 @@
 import streamlit as st
 import torch
-import torchaudio
-import time
-from step4_train_model import VoiceCNN
+import librosa
+import numpy as np
+from step4_train_model import VoiceCNN  # Your model
+from PIL import Image
 
-# ------------------------------------------
-# Load Model
-# ------------------------------------------
-MODEL_PATH = "voice_cnn_model.pth"
+# ---------------------
+# PAGE CONFIG
+# ---------------------
+st.set_page_config(page_title="Voice Deepfake Detector",
+                   page_icon="🎤",
+                   layout="centered")
+
+# ---------------------
+# LOAD LOGO
+# ---------------------
+try:
+    logo = Image.open("static/logo.png")
+    st.image(logo, width=150)
+except:
+    st.warning("Logo not found. Make sure 'static/logo.png' exists.")
+
+# ---------------------
+# TITLE + ANIMATED NAME
+# ---------------------
+st.markdown("""
+<h1 style='text-align:center; color:#00C3FF;'>🔍 Voice Deepfake Detection</h1>
+
+<div style='text-align:center; font-size:22px; font-weight:bold;'>
+✨ Developed by <span style='color:#FF007F; animation: glow 1s infinite;'>Manish Kumar</span> ✨
+</div>
+
+<style>
+@keyframes glow {
+  0% { text-shadow: 0 0 5px #FF007F; }
+  50% { text-shadow: 0 0 20px #FF007F; }
+  100% { text-shadow: 0 0 5px #FF007F; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.write("Upload an audio file to test whether it is **Real or Fake**.")
+
+# ---------------------
+# LOAD MODEL
+# ---------------------
+MODEL_PATH = "voice_cnn_model_small.pth"
 
 model = VoiceCNN()
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 
-# ------------------------------------------
-# Preprocess Audio
-# ------------------------------------------
-mel_spectrogram = torchaudio.transforms.MelSpectrogram(
-    sample_rate=16000,
-    n_fft=400,
-    hop_length=160,
-    n_mels=128
-)
+# ---------------------
+# AUDIO PREPROCESSING (librosa)
+# ---------------------
+def preprocess_audio(file_path):
+    wav, sr = librosa.load(file_path, sr=16000)
 
-def preprocess_audio(wav):
-    if wav.shape[0] > 1:
-        wav = torch.mean(wav, dim=0, keepdim=True)
+    # Generate Mel-spectrogram (same config as training)
+    mel = librosa.feature.melspectrogram(y=wav, sr=16000, n_fft=400,
+                                         hop_length=160, n_mels=128)
+    mel = librosa.power_to_db(mel, ref=np.max)
 
-    mel = mel_spectrogram(wav)
+    mel_tensor = torch.tensor(mel).unsqueeze(0).unsqueeze(0).float()
+    return mel_tensor
 
-    max_len = 1500
-    if mel.shape[2] > max_len:
-        mel = mel[:, :, :max_len]
+# ---------------------
+# FILE UPLOAD SECTION
+# ---------------------
+audio_file = st.file_uploader("Upload WAV/MP3 File", type=["wav", "mp3"])
+
+if audio_file:
+    
+    with open("temp_input.wav", "wb") as f:
+        f.write(audio_file.getbuffer())
+
+    st.success("Audio uploaded successfully!")
+    st.audio(audio_file)
+
+    mel = preprocess_audio("temp_input.wav")
+
+    with torch.no_grad():
+        output = model(mel)
+        probs = torch.softmax(output, dim=1).numpy()[0]
+
+    real_prob = probs[0]
+    fake_prob = probs[1]
+
+    # ---------------------
+    # RESULT UI
+    # ---------------------
+    st.write("### 🎯 Detection Result")
+
+    if fake_prob > real_prob:
+        st.error(f"🚨 **FAKE VOICE DETECTED!**\nFake Probability: **{fake_prob:.4f}**")
     else:
-        mel = torch.nn.functional.pad(mel, (0, max_len - mel.shape[2]))
+        st.success(f"✅ **REAL VOICE**\nReal Probability: **{real_prob:.4f}**")
 
-    mel = mel.unsqueeze(0)
-    return mel
+    st.progress(float(fake_prob))
 
-# ------------------------------------------
-# Streamlit Page Configuration
-# ------------------------------------------
-st.set_page_config(
-    page_title="Deepfake Voice Detector",
-    layout="centered",
-    page_icon="🎤"
-)
 
-# ------------------------------------------
-# Custom CSS For Premium UI
-# ------------------------------------------
-st.markdown("""
-<style>
 
-body {
-    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-}
 
-/* Glass Card */
-.card {
-    background: rgba(255, 255, 255, 0.08);
-    padding: 25px;
-    border-radius: 18px;
-    text-align: center;
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.15);
-}
-
-/* Glowing Header */
-@keyframes neonGlow {
-    0% { text-shadow: 0 0 5px #00eaff; }
-    50% { text-shadow: 0 0 20px #00c3ff; }
-    100% { text-shadow: 0 0 5px #00eaff; }
-}
-
-.title {
-    font-size: 38px;
-    color: white;
-    text-align: center;
-    font-weight: bold;
-    animation: neonGlow 2.5s infinite;
-}
-
-/* Manish Branding */
-@keyframes glowName {
-    0% { text-shadow: 0 0 4px #ff00c3; }
-    50% { text-shadow: 0 0 18px #ff00e0; }
-    100% { text-shadow: 0 0 4px #ff00c3; }
-}
-
-.creator {
-    font-size: 22px;
-    font-weight: bold;
-    text-align: center;
-    color: #ffb3f7;
-    animation: glowName 3s infinite;
-}
-
-/* Upload Button Styling */
-button[kind="secondary"] {
-    background-color: #00c3ff !important;
-    color: black !important;
-    font-weight: bold !important;
-    border-radius: 10px !important;
-}
-
-/* Result Box */
-.result-box {
-    padding: 15px;
-    border-radius: 12px;
-    font-size: 18px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ------------------------------------------
-# Header Section
-# ------------------------------------------
-st.image("static/logo.png", width=150)
-
-st.markdown("<div class='title'>Deepfake Voice Detection</div>", unsafe_allow_html=True)
-st.markdown("<div class='creator'>✨ Created by Manish Kumar ✨</div><br>", unsafe_allow_html=True)
-
-# ------------------------------------------
-# Upload Section
-# ------------------------------------------
-with st.container():
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("🎤 Upload your voice sample (WAV or MP3)", type=["wav", "mp3"])
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ------------------------------------------
-# Prediction Logic
-# ------------------------------------------
-if uploaded_file is not None:
-    st.audio(uploaded_file)
-
-    st.markdown("<div class='card'>Processing audio... ⏳</div>", unsafe_allow_html=True)
-    time.sleep(1)
-
-    try:
-        wav, sr = torchaudio.load(uploaded_file)
-        if sr != 16000:
-            wav = torchaudio.functional.resample(wav, sr, 16000)
-
-        mel = preprocess_audio(wav)
-
-        with torch.no_grad():
-            output = model(mel)
-            prob = torch.softmax(output, dim=1)
-
-        real_score, fake_score = prob[0][0].item(), prob[0][1].item()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-
-        if fake_score > real_score:
-            st.error(f"🚨 **Fake Voice Detected!**\n\nConfidence: **{fake_score:.4f}**")
-        else:
-            st.success(f"✅ **Real Voice**\n\nConfidence: **{real_score:.4f}**")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    except Exception as e:
-        st.error(f"Error processing audio: {e}")
 
 
