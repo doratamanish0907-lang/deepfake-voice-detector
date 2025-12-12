@@ -1,0 +1,9 @@
+torch>=1.10
+torchvision
+librosa
+numpy
+pandas
+scikit-learn
+soundfile
+tqdm
+matplotlib
