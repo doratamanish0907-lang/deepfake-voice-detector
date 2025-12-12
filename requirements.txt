@@ -1,9 +1,12 @@
-torch>=1.10
-torchvision
-librosa
+streamlit
 numpy
 pandas
-scikit-learn
+librosa==0.10.1
 soundfile
+scikit-learn
 tqdm
 matplotlib
+
+torch==2.0.1+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+
